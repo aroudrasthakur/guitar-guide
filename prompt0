@@ -1,0 +1,857 @@
+Hardest technical unknowns and assumptions
+
+Fretboard localization reliability: robustly finding the fretboard plane, frets, and strings across lighting, camera angles, guitar types, and partial occlusion.
+
+Finger to string and fret mapping: converting 2D fingertip locations into a stable (string, fret) assignment without jitter.
+
+Chord recognition accuracy without heavy training data: making it good enough for beginners using mostly pre trained components.
+
+Strumming and plucking classification: distinguishing strum direction and timing from noisy hand motion and variable camera placement.
+
+Audio vs vision fusion for “tunes”: polyphonic pitch detection is hard; for early versions assume monophonic melody practice or use guided play along and timing, not full chord transcription.
+
+Real time performance in browser: consistent 30 FPS on mid range laptops and modern phones, while keeping latency low and thermal load reasonable.
+
+Overlay alignment: stable AR style overlays without native ARKit/ARCore, purely in web canvas.
+
+Assumptions for MVP to reduce risk fast
+
+MVP targets steel string acoustic or electric with standard 6 strings.
+
+Single camera view with the fretboard clearly visible (user guided).
+
+Focus on fretting hand first (left hand for right handed players).
+
+Chords limited to a starter set (open chords + a few simple variations).
+
+Strumming feedback focuses on timing and direction, not perfect string hit accuracy.
+
+Tunes feature starts as rhythm and timing practice with optional monophonic pitch check.
+
+Product spec (MVP -> V1 -> V2)
+
+MVP (prove core value: chord overlays + basic feedback)
+Core user stories
+
+As a beginner, I want to select a chord and see exactly where to place my fingers on my real guitar in the camera view.
+
+As a beginner, I want the app to tell me if my fingers are on the correct strings and frets for the chord.
+
+As a beginner, I want chord transition drills with a timer and accuracy score.
+
+As a user, I want setup guidance so the camera view is good and overlays are aligned.
+
+Key flows
+
+Onboarding
+
+Choose: right handed or left handed
+
+Choose: acoustic or electric
+
+Short tutorial: “show the fretboard in frame”, “keep camera steady”, “good lighting”
+
+Calibration
+
+Step 1: Fretboard detection check with live hints (move closer, tilt, improve light)
+
+Step 2: Confirm nut and a reference fret (tap on screen) to lock geometry if auto detection is uncertain
+
+Step 3: Save calibration profile for the session
+
+Practice mode (chords)
+
+Pick a chord from a list
+
+Overlay shows target string and fret positions + finger numbers
+
+Live feedback: per finger correctness, overall chord match confidence
+
+Hold timer: “hold correct shape for 2 seconds” to pass
+
+Transition mode
+
+Select two chords, loop drill
+
+Score: time to correct shape, stability, and consistency
+
+Feedback mode
+
+After a drill: accuracy, average time to form chord, common mistakes (finger 2 on wrong string)
+Non goals for MVP
+
+Full song recognition and full chord progression detection from audio
+
+Barre chord coaching at scale
+
+Picking style classification beyond “basic strum motion detected”
+
+Multi camera support
+
+Any cloud training or personalization
+
+V1 (add rhythm coaching + starter songs)
+
+Add strumming lane overlay (down up timing) synced to metronome or song backing track
+
+Add “song mode” with a curated set of simple chord songs
+
+Add audio assisted feedback for timing and basic pitch checks (monophonic melody practice mode)
+
+Better calibration persistence per device and per guitar
+
+Add a “teacher view” replay with key moments
+
+V2 (advanced technique + personalization)
+
+Plucking and fingerstyle guidance (p i m a hints, arpeggio patterns)
+
+Barre chords and movable shapes with pressure and muting hints (heuristics plus more training)
+
+Personalized difficulty progression and spaced repetition
+
+More robust cross guitar generalization using a trained fretboard keypoint model
+
+Optional server side analysis for deeper feedback and model improvement (opt in)
+
+CV + audio technical approach
+
+A) Guitar detection and pose: fretboard plane, strings, frets, orientation
+
+Approach 1 (simple, MVP friendly heuristic with minimal training)
+
+Detect the fretboard as a dominant elongated quadrilateral region with strong parallel lines.
+Pipeline
+
+Run edge detection on downsampled frame.
+
+Use Hough line transform to find two dominant line families:
+
+Frets: near perpendicular to neck axis, many evenly spaced line segments
+
+Strings: near parallel lines along neck axis, fewer but long
+
+Estimate neck axis orientation as the dominant direction of strings.
+
+Compute a candidate fretboard ROI by clustering line intersections and selecting the largest consistent band region.
+
+Fit a homography from image space to a normalized fretboard plane.
+
+Infer approximate string lines (6) by projecting evenly spaced lines within the ROI and refining with local edge energy.
+
+Infer fret positions by detecting peaks of edge energy along the perpendicular direction and enforcing near geometric progression spacing.
+
+Pros: no training, fast, good for controlled view.
+Cons: breaks with glare, dark guitars, busy backgrounds, occlusion.
+
+Approach 2 (ML heavy but still lightweight in browser)
+
+Use a keypoint detection model for the guitar neck and fretboard landmarks.
+Targets
+
+4 corners of fretboard visible region
+
+Nut points (2 ends)
+
+Reference fret markers (like 3rd, 5th, 7th, 12th) if visible
+Model options
+
+Train a small keypoint model (MoveNet style) on labeled guitar images.
+
+Or use a lightweight object detector (YOLO style) to detect “fretboard” and then a smaller keypoint head.
+Inference in web
+
+Use TensorFlow.js or ONNX Runtime Web with WebGPU.
+
+Keypoints define a stable homography.
+
+Strings and frets can be estimated in the rectified plane.
+
+Pros: more robust than pure heuristics.
+Cons: needs dataset and training effort.
+
+MVP recommendation
+
+Start with Approach 1 plus a manual fallback:
+
+If confidence low, ask user to tap nut ends and one reference fret line to lock the plane.
+
+B) Hand pose: fingertip tracking, left vs right hand separation
+
+Use MediaPipe Hands in the browser (21 keypoints per hand).
+
+It provides robust on device tracking and high frame rate.
+
+Use handedness output plus screen position to assign fretting hand vs strumming hand:
+
+Fretting hand is the one with most keypoints inside fretboard ROI.
+
+Strumming hand is the one closer to the sound hole or pickups region (approximate from guitar body detection or just outside fretboard ROI).
+
+Stabilization
+
+Use a temporal filter per keypoint (One Euro filter) to reduce jitter.
+
+Track hand identity across frames using keypoint similarity and bounding box IoU.
+
+C) Chord recognition: mapping fingertips to string and fret positions
+
+Step 1: Map 2D fingertips into rectified fretboard coordinates
+
+Using homography H from image to normalized fretboard plane:
+
+p_plane = H * p_image
+
+Work in plane coordinates where strings are near vertical lines and frets near horizontal lines (or vice versa).
+
+Step 2: Assign each fingertip to a string index
+
+Project fingertip to nearest refined string line in plane coords.
+
+Add a penalty for crossing string order inconsistencies to prevent flips.
+
+Use Hungarian matching if multiple fingertips map to same string, prefer closer to fret region of chord.
+
+Step 3: Assign each fingertip to a fret index
+
+Determine which fret band the fingertip lies in by comparing to fret lines.
+
+For open chords, focus on frets 0 to 5 for MVP.
+
+Determine “pressed” vs “hovering” using depth proxy is not available, so use heuristics:
+
+fingertip y coordinate near the string line and within an expected press zone between fret lines
+
+fingertip velocity low for N frames (stable)
+
+optional audio: string rings when plucked, but MVP can ignore
+
+Step 4: Compare to chord templates
+Chord template representation
+
+For each chord: list of constraints per string:
+
+muted X, open 0, or fretted k at specific finger number
+Example: E major
+
+string 6: 0, string 5: 2 finger 2, string 4: 2 finger 3, string 3: 1 finger 1, string 2: 0, string 1: 0
+
+Matching
+
+Compute per string score:
+
+correct fret within tolerance -> 1
+
+wrong fret -> 0
+
+missing finger -> partial
+
+Total chord score is weighted sum with penalties for extra fingers and wrong strings.
+
+Add stability requirement: must remain above threshold for T milliseconds to count as correct.
+
+D) Strumming detection: direction, velocity, timing, hit zone
+
+Input
+
+Strumming hand wrist and index fingertip keypoints (MediaPipe).
+
+Define a strum zone:
+
+Approximate as a band just below end of fretboard in the image.
+
+Better: detect guitar body bounding box and use area around sound hole or pickups, but can be v1.
+
+Detect a strum event
+
+Track hand trajectory across frames.
+
+A strum occurs when:
+
+hand crosses the strum zone in a mostly vertical motion (perpendicular to strings)
+
+velocity exceeds threshold
+
+direction is down or up based on sign of motion.
+Timing
+
+Compare strum timestamps to metronome ticks or song beat grid.
+
+Compute timing error in milliseconds.
+
+Provide feedback like “late by 80 ms” or “good”.
+
+E) Plucking detection: picking vs fingerstyle (basic)
+
+MVP simplified
+
+Detect “single string pluck attempt” when:
+
+index fingertip moves toward a string line then quickly retracts within small region near the strum zone or near the end of fretboard.
+
+Classify pick vs fingerstyle
+
+Heuristic: if thumb and index tips are close together (pinch posture) and wrist motion is used, likely pick.
+
+If multiple fingertips move independently with small amplitudes, likely fingerstyle.
+This can be noisy, so in MVP treat it as “pluck detected” and only refine in V2.
+
+F) Tune / notes: audio pitch detection pipeline, when to rely on audio vs vision
+
+MVP tune feature scope
+
+Monophonic melody practice on high E and B strings, or single note exercises.
+
+Avoid full chord transcription.
+
+Audio pipeline in browser
+
+Use WebAudio API to capture mic.
+
+Run a pitch tracker:
+
+YIN or autocorrelation for monophonic pitch
+
+Use a short window size (2048 or 4096 samples) with overlap for low latency
+
+For polyphonic, offer only “chord timing and rhythm” feedback, not exact notes, until V2.
+
+Fusion logic
+
+Use vision to determine which string and fret is being pressed.
+
+Use audio to confirm whether the expected note pitch is present within tolerance.
+Latency constraints
+
+Target end to end feedback under 120 ms for “feels real time”.
+
+Audio pitch trackers can add 20 to 60 ms depending on window size.
+
+Use audio as confirmatory signal, not as sole recognition.
+
+Model choices (webapp friendly)
+
+MediaPipe Hands (hand keypoints, pre trained, fast).
+
+TensorFlow.js or ONNX Runtime Web for any custom models.
+
+For MVP guitar localization:
+
+Heuristic Hough based approach plus manual taps fallback.
+
+For V1 or V2:
+
+Lightweight fretboard landmark keypoint model via TFJS or ONNX.
+
+Optional: MediaPipe Objectron does not fit guitars well, so avoid.
+
+Data needed
+MVP
+
+No custom dataset required if using heuristics and manual calibration.
+V1 V2 dataset plan for fretboard keypoints
+
+Collect short videos and images of guitars under varying conditions.
+Labeling
+
+Label fretboard corners, nut endpoints, and several fret landmarks.
+
+Also label string lines on rectified plane for ground truth.
+Synthetic augmentation
+
+Perspective warp, blur, exposure shifts, glare overlays
+
+Background randomization
+
+Hand occlusion augmentation with alpha masks
+
+System architecture
+
+Mobile first vs desktop first decision and rationale
+
+Webapp first, but architect as PWA so it runs on both desktop and mobile browsers.
+
+Rationale
+
+Fast iteration, easy sharing, no app store friction.
+
+Tensor and WebGPU are good enough for MVP scope.
+
+Can later wrap in native shell if needed.
+
+Real time pipeline diagram
+
+Camera capture (getUserMedia)
+-> Frame downsample and color convert
+-> Fretboard localization (heuristic or model) with confidence
+-> Homography to rectified fretboard plane
+-> MediaPipe Hands inference and tracking
+-> Fingertip to string and fret mapping in plane coords
+-> Chord match scoring and stability check
+-> Strum detection from right hand motion
+-> Optional audio pitch detection
+-> Overlay render (Canvas WebGL or 2D) + feedback UI
+
+Latency budget targets and FPS goals
+Targets for mid range phone browser
+
+Camera capture + copy: 5 to 10 ms
+
+Fretboard localization:
+
+heuristic: 5 to 12 ms at low res, not every frame (run every 10 frames)
+
+ML model: 10 to 25 ms depending on size (also not every frame)
+
+MediaPipe Hands: 10 to 20 ms
+
+Mapping and scoring: 1 to 3 ms
+
+Overlay rendering: 3 to 8 ms
+Total target
+
+30 FPS sustained, end to end feedback under 120 ms.
+
+On device vs server
+
+On device only for MVP and V1.
+
+Privacy: camera and mic never leave device.
+
+Optional server in V2 for analytics, model updates, and opt in improvement uploads.
+
+Offline mode requirements
+
+PWA with cached assets and models.
+
+All practice modules and metronome work offline.
+
+Song content bundled or cached.
+
+Calibration and robustness
+
+Calibration steps
+
+Step 0: Choose right or left handed, acoustic or electric.
+
+Step 1: Show “alignment guide” frame overlay for user to place fretboard in view.
+
+Step 2: Auto detect fretboard. If confidence high, proceed.
+
+Step 3: If confidence low, manual assist:
+
+tap nut left and nut right endpoints
+
+tap one fret line (3rd or 5th) on both ends
+
+from these points derive homography.
+
+Step 4: Validate by drawing strings and frets overlay and asking user to adjust if off.
+
+Guitar type variations
+
+Acoustic, electric, classical: different widths and markers.
+
+Use manual calibration to handle.
+
+Save a profile per device in local storage.
+
+Lighting and camera angle
+
+Show live hints:
+
+“too dark, increase light”
+
+“move closer”
+
+“reduce glare”
+
+Auto exposure check from frame histogram.
+
+Lefty mode
+
+Mirror coordinate system, invert handedness mapping, swap chord diagrams appropriately.
+
+Occlusion and motion blur handling
+
+Confidence score for:
+
+fretboard localization
+
+hand keypoints stability
+
+chord match stability
+
+If confidence drops:
+
+freeze overlay and show “hold steady” or “reposition”
+
+fall back to chord diagram UI and keep metronome.
+
+UX overlay design
+
+Overlay elements
+
+Fretboard overlay
+
+draw 6 string lines and fret lines as semi transparent guides
+
+Target finger placement
+
+circles on target string and fret with finger number inside
+
+color state: target, correct, incorrect, missing
+
+Chord name and shape diagram
+
+small chord box top corner
+
+Strumming lane
+
+vertical lane near strum zone with down up arrows and beat ticks
+
+Timing cursor
+
+moving bar synced to metronome beat
+
+Feedback messages
+
+Short and actionable
+
+“Index finger one string up”
+
+“Ring finger move to 3rd fret”
+
+“Good, hold 2 seconds”
+
+“Down strum early by 70 ms”
+
+Practice modes
+
+Chord drills
+
+pick chord, place fingers, hold stable
+
+Transitions
+
+chord A to chord B loop
+
+Rhythm drills
+
+mute strings and strum to metronome, score timing and direction
+
+Song mode V1
+
+chord timeline with strum pattern overlay
+
+Engineering plan
+
+Tech stack (webapp first, thorough, no options)
+Frontend and app framework
+
+Next.js (TypeScript) using the App Router
+
+React for UI
+
+Tailwind CSS for styling
+
+Zustand for lightweight state management
+
+TanStack Query for any remote content later, still useful for caching song packs
+
+PWA support with next pwa for offline caching
+
+Vercel for deployment
+
+Real time media and rendering
+
+WebRTC getUserMedia for camera access
+
+Canvas 2D for overlays initially, upgrade to WebGL via regl if needed for performance
+
+OffscreenCanvas + Web Workers for non UI processing (where supported)
+
+requestVideoFrameCallback for efficient frame timing
+
+ML inference in browser
+
+MediaPipe Hands (via @mediapipe/tasks vision) running with WebAssembly and optionally WebGPU acceleration where available
+
+ONNX Runtime Web (onnxruntime web) for any custom models later
+
+TensorFlow.js only if needed for specific models, but prefer ONNX Runtime for portability
+
+One Euro filter implementation for keypoint smoothing
+
+Audio processing
+
+WebAudio API for microphone capture
+
+Pitch detection in a Web Worker
+
+Use YIN based monophonic pitch detection for MVP tune mode
+
+Metronome and beat grid generated locally
+
+Backend
+
+Supabase
+
+Auth (email magic link or OAuth)
+
+Postgres for user profiles, progress, practice history
+
+Storage for optional user uploaded clips in V2
+
+Edge Functions for lightweight API endpoints if needed
+Analytics and monitoring
+
+PostHog for product analytics (privacy friendly config, no raw video)
+
+Sentry for error tracking and performance monitoring
+Dev tooling and quality
+
+ESLint + Prettier
+
+TypeScript strict mode
+
+Playwright for e2e tests on key flows
+
+Vitest for unit tests on chord matching, timing metrics
+
+GitHub Actions CI for lint, test, build
+
+Feature flags via simple config file for gradual rollout of V1 modules
+
+Repo structure suggestion
+
+apps/web
+
+app/ (Next routes)
+
+components/
+
+features/
+
+calibration/
+
+chord trainer/
+
+rhythm trainer/
+
+song mode/
+
+ml/
+
+hands/
+
+fretboard/
+
+chord match/
+
+filters/
+
+audio/
+
+pitch/
+
+metronome/
+
+workers/
+
+cv worker
+
+audio worker
+
+lib/
+
+tests/
+
+packages/shared
+
+chord templates
+
+scoring utils
+
+types
+
+packages/ui
+
+reusable UI components
+
+Risk list and mitigations
+
+Fretboard detection unreliable
+
+Mitigation: manual calibration taps, run localization intermittently, show guidance UI.
+
+Finger to fret mapping unstable
+
+Mitigation: rectified plane, smoothing, stability threshold, tolerance bands.
+
+Browser performance issues on phones
+
+Mitigation: downsample frames, run expensive steps at lower frequency, use workers, keep overlays simple.
+
+Audio pitch noisy
+
+Mitigation: keep MVP monophonic and optional, use it as confirmatory not primary.
+
+User frustration in setup
+
+Mitigation: strong onboarding, clear alignment guide, quick calibration success path.
+
+Acceptance tests
+
+MVP measurable criteria
+
+Overlay alignment error
+
+After calibration, median error of string overlay to visible strings under 8 px on a 720p frame in controlled lighting (internal test set).
+
+Chord recognition
+
+For the starter open chord set, detect correct chord shape with at least 85 percent accuracy when the user holds the correct shape for 2 seconds, across 10 testers and 3 guitar types.
+
+Time to feedback
+
+From finger movement to updated overlay feedback under 150 ms on a mid range phone for at least 80 percent of frames.
+
+Strum timing
+
+Detect down strum events with at least 90 percent recall in rhythm drill at 80 to 120 BPM in good lighting.
+
+App stability
+
+No crashes across a 10 minute session on Chrome and Safari mobile.
+
+Usability
+
+New user can complete calibration and pass a chord drill within 3 minutes (pilot test metric).
+
+Pseudocode
+
+Real time loop (video + hands + fretboard + overlay)
+
+state = {
+  fretboard: { H: null, strings: [], frets: [], confidence: 0 },
+  hands: { left: null, right: null },
+  chordTarget: "G",
+  lastStrumTs: 0,
+  metrics: { chordScore: 0, stableMs: 0 }
+}
+
+function onVideoFrame(now, frame) {
+  // 1) grab current frame at processing resolution
+  img = getDownsampledFrame(frame, 640, 360)
+
+  // 2) update fretboard occasionally or when confidence low
+  if (shouldUpdateFretboard(now, state.fretboard.confidence)) {
+    fb = estimateFretboard(img) // heuristic
+    if (fb.confidence < 0.6 && state.fretboard.H == null) {
+      // wait for manual calibration if needed
+      showCalibrationHint()
+    } else if (fb.confidence >= 0.6) {
+      state.fretboard = fb
+    }
+  }
+
+  // 3) run hand pose
+  hands = mediapipeHands.detect(img)
+  hands = smoothHands(hands, now)
+
+  // 4) pick fretting vs strumming hand relative to fretboard ROI
+  state.hands = assignHands(hands, state.fretboard)
+
+  // 5) chord mapping if fretboard ready
+  if (state.fretboard.H != null && state.hands.fretting != null) {
+    fingertips = getFingertips(state.hands.fretting)
+    planePts = projectPoints(state.fretboard.H, fingertips)
+    fingerAssignments = mapToStringsAndFrets(planePts, state.fretboard)
+
+    match = scoreChord(fingerAssignments, CHORDS[state.chordTarget])
+    state.metrics = updateStability(state.metrics, match.score, now)
+
+    feedback = generateFeedback(match, state.chordTarget)
+  }
+
+  // 6) strum detection
+  if (state.hands.strumming != null) {
+    strumEvent = detectStrum(state.hands.strumming, state.fretboard, now)
+    if (strumEvent) {
+      timingErr = computeTimingError(strumEvent.ts, metronome)
+      updateRhythmScore(timingErr, strumEvent.direction)
+    }
+  }
+
+  // 7) render overlays
+  renderVideo()
+  renderFretboardOverlay(state.fretboard)
+  renderChordOverlay(state.chordTarget, match, feedback)
+  renderRhythmOverlay(metronome, lastStrum)
+
+  requestNextFrame(onVideoFrame)
+}
+
+
+Chord matching logic
+
+function scoreChord(fingers, chordTemplate) {
+  // fingers: list of { fingerId, stringIdx, fretIdx, confidence }
+  // chordTemplate: per string constraint: X, 0, or fret k, optional finger number
+
+  let score = 0
+  let maxScore = 0
+  let perString = []
+
+  for (s = 1..6) {
+    maxScore += 1
+    expected = chordTemplate.strings[s]  // X / 0 / k
+    observed = bestFingerOnString(fingers, s)
+
+    if (expected == "X") {
+      // MVP cannot reliably detect muting, so do not penalize much
+      perString[s] = { ok: true, note: "muting not enforced" }
+      score += 0.6
+      continue
+    }
+
+    if (expected == 0) {
+      // open string: we just need no finger assigned near first few frets
+      if (observed == null || observed.fretIdx <= 0) {
+        perString[s] = { ok: true }
+        score += 1
+      } else {
+        perString[s] = { ok: false, reason: "finger blocking open string" }
+        score += 0
+      }
+      continue
+    }
+
+    // expected fretted
+    if (observed != null && abs(observed.fretIdx - expected) <= 0) {
+      perString[s] = { ok: true, fingerId: observed.fingerId }
+      score += 1
+    } else {
+      perString[s] = { ok: false, reason: "wrong fret or missing finger" }
+      score += 0
+    }
+  }
+
+  // penalize extra fingers not in template region
+  extraPenalty = computeExtraFingerPenalty(fingers, chordTemplate)
+  finalScore = clamp((score / maxScore) - extraPenalty, 0, 1)
+
+  return { score: finalScore, perString }
+}
+
+
+MVP that reduces risk fastest
+
+Build the webapp with camera preview, MediaPipe Hands, and a manual assisted fretboard calibration.
+
+Implement chord overlay for a small open chord set and simple match scoring with stability.
+
+Only after chord overlay is reliable, add rhythm drill and strum detection.
+
+Leave plucking classification and tune pitch confirmation as optional V1 modules once the visual foundation works.
