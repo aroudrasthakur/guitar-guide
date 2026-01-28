@@ -1,0 +1,4 @@
+# This repository is a Node.js / Next.js app (see package.json).
+# There are currently no Python dependencies required to run it.
+#
+# If you later add a Python service/script, list its pinned dependencies here.
