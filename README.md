@@ -26,12 +26,30 @@ A web-based guitar learning application that uses computer vision to provide rea
 - Node.js 18+ 
 - npm or yarn
 
-### Installation
+### Local Setup
 
-```bash
-cd apps/web
-npm install
-```
+1. **Clone the repo (if you haven't already)**:
+
+   ```bash
+   git clone <your-repo-url> guitar-guide
+   cd guitar-guide
+   ```
+
+2. **Install dependencies**:
+
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables** (optional for now):
+
+   - Copy `.env.example` to `.env.local`:
+
+     ```bash
+     cp .env.example .env.local
+     ```
+
+   - Currently no variables are required, but as you add them, define them in `.env.local`.
 
 ### Development
 
@@ -58,23 +76,37 @@ npm run build
 npm start
 ```
 
+## Running Tests
+
+### Unit tests
+
+```bash
+npm test
+```
+
+### E2E tests (Playwright)
+
+```bash
+npm run test:e2e
+```
+
 ## Project Structure
 
 ```
-apps/web/
+guitar-guide/
 ├── app/                    # Next.js routes
-│   ├── onboarding/        # Onboarding flow
-│   ├── calibrate/         # Fretboard calibration
-│   └── practice/          # Practice modes
-├── components/            # Shared UI components
-├── features/              # Feature modules
-│   ├── calibration/       # Calibration logic
-│   ├── chord-trainer/     # Chord matching and UI
-│   └── ml/                # Computer vision
-│       ├── hands/         # Hand tracking
-│       └── fretboard/     # Fretboard detection
-├── lib/                   # Core utilities
-└── packages/shared/       # Shared code
+│   ├── onboarding/         # Onboarding flow
+│   ├── calibrate/          # Fretboard calibration
+│   └── practice/           # Practice modes
+├── components/             # Shared UI components
+├── features/               # Feature modules
+│   ├── calibration/        # Calibration logic
+│   ├── chord-trainer/      # Chord matching and UI
+│   └── ml/                 # Computer vision
+│       ├── hands/          # Hand tracking
+│       └── fretboard/      # Fretboard detection
+├── lib/                    # Core utilities
+└── packages/shared/        # Shared code
 ```
 
 ## Usage
